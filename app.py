@@ -56,7 +56,7 @@ def home():
 @app.route('/webhook/<bot_id>', methods=['POST'])
 def webhook(bot_id):
     if bot_id not in BOT_CONFIGS:
-        return jsonify({'status': 'error', 'message': 'Invalid bot ID'}), 404
+        return jsonify({'status': 'error', 'message': 'Invalid bot ID '}), 404
 
     if request.method == 'POST':
         data = request.json

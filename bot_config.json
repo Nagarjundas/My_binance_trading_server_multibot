@@ -4,7 +4,14 @@
       "binance_secret_key": "QQHzXGdeqDmgmtV0MANqvtgwdNVWfJpLnqSrSL74lewGAUzCNiBbSXVwUOGWhLeO",
       "telegram_bot_token": "7673487442:AAGaYfMhUeD1W01SZWR_8QtV7RpkA2fiypE",
       "telegram_chat_id": "997349475"
-    }
+    },
+
+    "bot2": {
+        "binance_api_key": "5c88db4fb7acd3f3bbf2e4478e03df4ce7d7de8b2e3678e08b322331ff4b2a9d",
+        "binance_secret_key": "139cba5382e40c56acab99a55f5c5384548f029cfaa1a82900618aff3768a922",
+        "telegram_bot_token": "7740215293:AAGKfFlnhRh_aK0ztCr7q5aJDps3XCJaq9o",
+        "telegram_chat_id": "997349475"
+      }
     
   }
 
