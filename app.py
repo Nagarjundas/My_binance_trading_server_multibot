@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 import json
 from datetime import datetime, timedelta
 import re
+from flask import render_template
 
 # Load environment variables
 load_dotenv()
@@ -204,10 +205,13 @@ def format_balance_message(balances):
     return message
 
 
-
 @app.route('/')
 def home():
-    return "Multi-Bot TradingView Webhook Server is running!"
+    """
+    Serves the home page of the web application.
+    """
+    return render_template('index.html')
+
 
 # ... (previous imports and configurations remain the same)
 
@@ -375,6 +379,21 @@ def get_status(bot_id):
         'status': 'success',
         'balances': balances,
         'open_orders': open_orders
+    }), 200
+
+@app.route('/status/<bot_id>/<symbol>', methods=['GET'])
+def get_status(bot_id,symbol):
+    """Endpoint to get current account status for one symbol """
+    if bot_id not in BOT_CONFIGS:
+        return jsonify({'status': 'error', 'message': 'Invalid bot ID'}), 404
+
+    balances = get_symbol_balance_one_symbol(bot_id,symbol)
+    
+
+    return jsonify({
+        'status': 'success',
+        'balances': balances,
+        
     }), 200
 
 @app.route('/trades/<bot_id>/<symbol>', methods=['GET'])
