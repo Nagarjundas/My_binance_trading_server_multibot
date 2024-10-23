@@ -107,6 +107,34 @@ def get_open_orders(bot_id, symbol=None):
     except Exception as e:
         logger.error(f"Bot {bot_id}: Failed to get open orders: {e}")
         return None
+    
+def get_symbol_balance_one_symbol(bot_id, symbol):
+    """Get account balance for a specific asset (symbol)."""
+    try:
+        account = binance_clients[bot_id].get_account()
+        for asset in account['balances']:
+            if asset['asset'].upper() == symbol.upper():
+                # Convert strings to float for free and locked balances
+                free = float(asset['free'])
+                locked = float(asset['locked'])
+                total = free + locked
+                # Return balance only if there is a non-zero balance
+                if total > 0:
+                    balance_info = {
+                        'asset': asset['asset'],
+                        'free': free,
+                        'locked': locked,
+                        'total': total
+                    }
+                    logger.info(f"Bot {bot_id}: Retrieved balance for {symbol}")
+                    return balance_info
+        # If no balance is found for the symbol
+        logger.info(f"Bot {bot_id}: No balance found for {symbol}")
+        return None
+    except Exception as e:
+        logger.error(f"Bot {bot_id}: Failed to get balance for {symbol}: {e}")
+        return None
+
 
 # Also update the send_telegram_message function for better error handling
 def send_telegram_message(bot_id, message):
@@ -278,8 +306,8 @@ def webhook(bot_id):
         }), 500
 
     try:
-        # Get updated balance and recent trades
-        balances = get_account_balance(bot_id)
+        # Get updated balance for that symbol and recent trades
+        balances = get_symbol_balance_one_symbol(bot_id,symbol)
         recent_trades = get_recent_trades(bot_id, symbol, limit=1)
         
         # Prepare notification message
