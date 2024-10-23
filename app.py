@@ -382,7 +382,7 @@ def get_status(bot_id):
     }), 200
 
 @app.route('/status/<bot_id>/<symbol>', methods=['GET'])
-def get_status(bot_id,symbol):
+def get_single_status(bot_id,symbol):
     """Endpoint to get current account status for one symbol """
     if bot_id not in BOT_CONFIGS:
         return jsonify({'status': 'error', 'message': 'Invalid bot ID'}), 404
