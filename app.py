@@ -7,6 +7,7 @@ import logging
 from dotenv import load_dotenv
 import json
 from datetime import datetime, timedelta
+import re
 
 # Load environment variables
 load_dotenv()
@@ -28,6 +29,14 @@ telegram_bots = {}
 for bot_id, config in BOT_CONFIGS.items():
     binance_clients[bot_id] = Client(config['binance_api_key'], config['binance_secret_key'], testnet=True)
     telegram_bots[bot_id] = telebot.TeleBot(config['telegram_bot_token'])
+
+
+
+def escape_markdown(text):
+    """Escape characters that have special meaning in Markdown."""
+    escape_chars = r'_*[]()~`>#+-=|{}.!'
+    return re.sub(r'([%s])' % re.escape(escape_chars), r'\\\1', text)
+
 
 def get_account_balance(bot_id):
     """Get account balance for all assets with non-zero balance"""
@@ -101,31 +110,39 @@ def get_open_orders(bot_id, symbol=None):
 
 # Also update the send_telegram_message function for better error handling
 def send_telegram_message(bot_id, message):
-    """
-    Enhanced Telegram message sender with better error handling
-    """
     try:
         if bot_id not in BOT_CONFIGS:
             raise ValueError(f"Invalid bot ID: {bot_id}")
-        
+
         if not BOT_CONFIGS[bot_id].get('telegram_bot_token'):
             raise ValueError(f"Telegram bot token not configured for bot ID: {bot_id}")
-        
+
         if not BOT_CONFIGS[bot_id].get('telegram_chat_id'):
             raise ValueError(f"Telegram chat ID not configured for bot ID: {bot_id}")
-        
+
         # Add error handling for message content
         if not message or not isinstance(message, str):
             raise ValueError(f"Invalid message content: {message}")
-
-        # Send message with markdown parsing
-        telegram_bots[bot_id].send_message(
-            chat_id=BOT_CONFIGS[bot_id]['telegram_chat_id'],
-            text=message,
-            parse_mode='Markdown'
-        )
-        logger.info(f"Bot {bot_id}: Telegram message sent successfully")
         
+        # Telegram message length check (4096 characters)
+        max_length = 4096
+        if len(message) > max_length:
+            # Split message into chunks
+            for i in range(0, len(message), max_length):
+                telegram_bots[bot_id].send_message(
+                    chat_id=BOT_CONFIGS[bot_id]['telegram_chat_id'],
+                    text=message[i:i + max_length],
+                    parse_mode='Markdown'
+                )
+        else:
+            # Send the full message if it's within the limit
+            telegram_bots[bot_id].send_message(
+                chat_id=BOT_CONFIGS[bot_id]['telegram_chat_id'],
+                text=message,
+                parse_mode='Markdown'
+            )
+        logger.info(f"Bot {bot_id}: Telegram message sent successfully")
+
     except Exception as e:
         logger.error(f"Bot {bot_id}: Failed to send Telegram message: {str(e)}")
         raise
@@ -147,14 +164,18 @@ def execute_binance_order(bot_id, symbol, side, quantity):
         return None
 
 def format_balance_message(balances):
-    """Format balance information for Telegram message"""
+    """Format balance information for Telegram message, limiting message length"""
     message = "📊 *Account Balance*\n\n"
     for balance in balances:
-        message += f"*{balance['asset']}*:\n"
-        message += f"Free: {balance['free']:.8f}\n"
-        message += f"Locked: {balance['locked']:.8f}\n"
-        message += f"Total: {balance['total']:.8f}\n\n"
+        # Only include balances with a total > 0.01 to avoid small amounts
+        if balance['total'] > 0.01:
+            message += f"*{balance['asset']}*:\n"
+            message += f"Free: {balance['free']:.8f}\n"
+            message += f"Locked: {balance['locked']:.8f}\n"
+            message += f"Total: {balance['total']:.8f}\n\n"
     return message
+
+
 
 @app.route('/')
 def home():
