@@ -99,12 +99,38 @@ def get_open_orders(bot_id, symbol=None):
         logger.error(f"Bot {bot_id}: Failed to get open orders: {e}")
         return None
 
+# Also update the send_telegram_message function for better error handling
 def send_telegram_message(bot_id, message):
+    """
+    Enhanced Telegram message sender with better error handling
+    """
     try:
-        telegram_bots[bot_id].send_message(BOT_CONFIGS[bot_id]['telegram_chat_id'], message)
-        logger.info(f"Bot {bot_id}: Sent Telegram message: {message}")
+        if bot_id not in BOT_CONFIGS:
+            raise ValueError(f"Invalid bot ID: {bot_id}")
+        
+        if not BOT_CONFIGS[bot_id].get('telegram_bot_token'):
+            raise ValueError(f"Telegram bot token not configured for bot ID: {bot_id}")
+        
+        if not BOT_CONFIGS[bot_id].get('telegram_chat_id'):
+            raise ValueError(f"Telegram chat ID not configured for bot ID: {bot_id}")
+        
+        # Add error handling for message content
+        if not message or not isinstance(message, str):
+            raise ValueError(f"Invalid message content: {message}")
+
+        # Send message with markdown parsing
+        telegram_bots[bot_id].send_message(
+            chat_id=BOT_CONFIGS[bot_id]['telegram_chat_id'],
+            text=message,
+            parse_mode='Markdown'
+        )
+        logger.info(f"Bot {bot_id}: Telegram message sent successfully")
+        
     except Exception as e:
-        logger.error(f"Bot {bot_id}: Failed to send Telegram message: {e}")
+        logger.error(f"Bot {bot_id}: Failed to send Telegram message: {str(e)}")
+        raise
+
+
 
 def execute_binance_order(bot_id, symbol, side, quantity):
     try:
@@ -134,56 +160,158 @@ def format_balance_message(balances):
 def home():
     return "Multi-Bot TradingView Webhook Server is running!"
 
+# ... (previous imports and configurations remain the same)
+
 @app.route('/webhook/<bot_id>', methods=['POST'])
 def webhook(bot_id):
+    """
+    Enhanced webhook endpoint with better error handling and request validation
+    """
+    logger.info(f"Received webhook request for bot_id: {bot_id}")
+    
+    # Validate bot_id
     if bot_id not in BOT_CONFIGS:
+        logger.error(f"Invalid bot ID: {bot_id}")
         return jsonify({'status': 'error', 'message': 'Invalid bot ID'}), 404
 
-    if request.method == 'POST':
-        data = request.json
-        logger.info(f"Bot {bot_id}: Received webhook data: {data}")
+    # Validate request content type
+    if not request.is_json:
+        logger.error(f"Invalid content type. Expected application/json, got {request.content_type}")
+        return jsonify({
+            'status': 'error',
+            'message': 'Invalid content type. Please send JSON data with Content-Type: application/json'
+        }), 400
 
+    # Get and log raw request data
+    raw_data = request.get_data()
+    logger.info(f"Raw request data: {raw_data}")
+
+    # Parse JSON data with error handling
+    try:
+        data = request.get_json()
+        logger.info(f"Bot {bot_id}: Parsed webhook data: {data}")
+        
+        if not data:
+            logger.error("Empty JSON data received")
+            return jsonify({
+                'status': 'error',
+                'message': 'Empty JSON data received'
+            }), 400
+
+    except Exception as e:
+        logger.error(f"JSON parsing error: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'Invalid JSON data: {str(e)}'
+        }), 400
+
+    # Validate required fields
+    required_fields = ['action', 'symbol', 'quantity']
+    missing_fields = [field for field in required_fields if field not in data]
+    
+    if missing_fields:
+        error_msg = f"Missing required fields: {', '.join(missing_fields)}"
+        logger.error(error_msg)
+        return jsonify({
+            'status': 'error',
+            'message': error_msg
+        }), 400
+
+    try:
+        action = data['action'].upper()
+        symbol = data['symbol'].upper()
+        quantity = float(data['quantity'])
+
+        # Validate action
+        valid_actions = ['BUY', 'SELL', 'TAKE_PROFIT', 'STOP_LOSS']
+        if action not in valid_actions:
+            logger.error(f"Invalid action: {action}")
+            return jsonify({
+                'status': 'error',
+                'message': f'Invalid action. Must be one of: {", ".join(valid_actions)}'
+            }), 400
+
+        # Validate quantity
+        if quantity <= 0:
+            logger.error(f"Invalid quantity: {quantity}")
+            return jsonify({
+                'status': 'error',
+                'message': 'Quantity must be greater than 0'
+            }), 400
+
+    except ValueError as e:
+        logger.error(f"Value error in data validation: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'Invalid numeric format: {str(e)}'
+        }), 400
+
+    # Execute order
+    order = execute_binance_order(bot_id, symbol, SIDE_BUY if action == 'BUY' else SIDE_SELL, quantity)
+    
+    if not order:
+        logger.error("Order execution failed")
+        return jsonify({
+            'status': 'error',
+            'message': 'Failed to execute order'
+        }), 500
+
+    try:
+        # Get updated balance and recent trades
+        balances = get_account_balance(bot_id)
+        recent_trades = get_recent_trades(bot_id, symbol, limit=1)
+        
+        # Prepare notification message
+        emoji = {'BUY': '🟢', 'SELL': '🔴', 'TAKE_PROFIT': '💰', 'STOP_LOSS': '🛑'}[action]
+        message = (
+            f"{emoji} *{action} Order Executed*\n"
+            f"Symbol: {symbol}\n"
+            f"Quantity: {quantity}\n\n"
+        )
+        
+        if balances:
+            message += "*Updated Balance:*\n"
+            for balance in balances:
+                if float(balance['total']) > 0:
+                    message += (
+                        f"{balance['asset']}:\n"
+                        f"Free: {balance['free']:.8f}\n"
+                        f"Locked: {balance['locked']:.8f}\n"
+                        f"Total: {balance['total']:.8f}\n\n"
+                    )
+        
+        if recent_trades:
+            trade = recent_trades[0]
+            message += (
+                f"*Latest Trade Details:*\n"
+                f"Price: {trade['price']}\n"
+                f"Total: {trade['total']}\n"
+                f"Commission: {trade['commission']} {trade['commission_asset']}\n"
+            )
+
+        # Send Telegram notification with error handling
         try:
-            action = data['action']
-            symbol = data['symbol']
-            quantity = float(data['quantity'])
-        except KeyError as e:
-            return jsonify({'status': 'error', 'message': f'Missing required field: {str(e)}'}), 400
-        except ValueError:
-            return jsonify({'status': 'error', 'message': 'Invalid quantity format'}), 400
-
-        if action not in ['BUY', 'SELL', 'TAKE_PROFIT', 'STOP_LOSS']:
-            return jsonify({'status': 'error', 'message': 'Invalid action'}), 400
-
-        # Execute order
-        order = execute_binance_order(bot_id, symbol, SIDE_BUY if action == 'BUY' else SIDE_SELL, quantity)
-        if order:
-            # Get updated balance and recent trades
-            balances = get_account_balance(bot_id)
-            recent_trades = get_recent_trades(bot_id, symbol, limit=1)
-            
-            # Prepare notification message
-            emoji = {'BUY': '🟢', 'SELL': '🔴', 'TAKE_PROFIT': '💰', 'STOP_LOSS': '🛑'}[action]
-            message = f"{emoji} *{action} Order Executed*\n"
-            message += f"Symbol: {symbol}\n"
-            message += f"Quantity: {quantity}\n\n"
-            
-            if balances:
-                message += format_balance_message(balances)
-            
-            if recent_trades:
-                trade = recent_trades[0]
-                message += f"\n*Latest Trade Details:*\n"
-                message += f"Price: {trade['price']}\n"
-                message += f"Total: {trade['total']}\n"
-                message += f"Commission: {trade['commission']} {trade['commission_asset']}\n"
-            
             send_telegram_message(bot_id, message)
-            return jsonify({'status': 'success', 'message': 'Order processed'}), 200
-        else:
-            return jsonify({'status': 'error', 'message': 'Failed to execute order'}), 500
+            logger.info("Telegram notification sent successfully")
+        except Exception as e:
+            logger.error(f"Failed to send Telegram notification: {str(e)}")
+            # Continue execution even if Telegram notification fails
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Order processed',
+            'order': order
+        }), 200
 
-    return jsonify({'status': 'error', 'message': 'Invalid request method'}), 405
+    except Exception as e:
+        logger.error(f"Error in post-order processing: {str(e)}")
+        return jsonify({
+            'status': 'success',
+            'message': 'Order executed but failed to process additional information',
+            'order': order
+        }), 200
+
+
 
 @app.route('/status/<bot_id>', methods=['GET'])
 def get_status(bot_id):
